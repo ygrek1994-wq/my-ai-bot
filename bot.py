@@ -96,9 +96,31 @@ async def run_bot():
     await telegram_app.bot.set_webhook(url=webhook_url)
     logger.info(f"Webhook установлен на {webhook_url}")
 
-if __name__ == "__main__":
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(run_bot())
+import asyncio
+from telegram import Update
+from telegram.ext import Application
+
+# ... (весь ваш предыдущий код остается без изменений до этого места)
+
+# Создаем отдельную функцию для запуска webhook
+async def setup_webhook():
+    """Настройка webhook и запуск Flask"""
+    webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'localhost')}/{TOKEN}"
+    
+    # Удаляем старый webhook, если был
+    await telegram_app.bot.delete_webhook()
+    
+    # Устанавливаем новый webhook
+    await telegram_app.bot.set_webhook(
+        url=webhook_url,
+        allowed_updates=Update.ALL_TYPES
+    )
+    
+    logger.info(f"Webhook установлен на {webhook_url}")
+    
+    # Запускаем Flask (он будет принимать webhook от Telegram)
     app.run(host="0.0.0.0", port=PORT)
+
+# Точка входа
+if __name__ == "__main__":
+    asyncio.run(setup_webhook())
