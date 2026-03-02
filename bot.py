@@ -31,10 +31,10 @@ openai.api_base = OPENAI_API_BASE
 # Создаем Flask приложение
 app = Flask(__name__)
 
-# Словарь для хранения счетчиков запросов (в реальном проекте лучше использовать БД)
+# Словарь для хранения счетчиков запросов
 user_requests = {}
 
-# Создаем приложение Telegram бота
+# Создаем и инициализируем приложение Telegram бота
 telegram_app = Application.builder().token(TOKEN).build()
 
 async def start(update, context):
@@ -50,7 +50,7 @@ async def handle_message(update, context):
     user_id = update.effective_user.id
     user_message = update.message.text
     
-    # Простой счетчик запросов (для демо)
+    # Простой счетчик запросов
     if user_id not in user_requests:
         user_requests[user_id] = 0
     
@@ -94,11 +94,18 @@ async def handle_message(update, context):
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+# Создаем event loop для асинхронных операций
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
     """Endpoint для получения обновлений от Telegram"""
     update = telegram.Update.de_json(request.get_json(force=True), telegram_app.bot)
-    asyncio.run_coroutine_threadsafe(telegram_app.process_update(update), telegram_app.loop)
+    
+    # Запускаем обработку обновления в event loop
+    asyncio.run_coroutine_threadsafe(telegram_app.process_update(update), loop)
+    
     return "OK", 200
 
 @app.route("/health", methods=["GET"])
@@ -111,14 +118,12 @@ def home():
     return "Bot is running", 200
 
 async def setup_webhook():
-    """Настройка webhook и запуск Flask"""
-    # Получаем внешний хост из переменной окружения Render
+    """Настройка webhook"""
     render_hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
     
     if render_hostname:
         webhook_url = f"https://{render_hostname}/{TOKEN}"
     else:
-        # Для локального тестирования
         webhook_url = f"https://localhost:{PORT}/{TOKEN}"
     
     logger.info(f"Устанавливаем webhook на {webhook_url}")
@@ -136,11 +141,21 @@ async def setup_webhook():
         logger.info("Webhook успешно установлен!")
     else:
         logger.error("Не удалось установить webhook")
-    
-    # Запускаем Flask приложение
+
+def run_flask():
+    """Запуск Flask приложения"""
     logger.info(f"Запускаем Flask на порту {PORT}")
     app.run(host="0.0.0.0", port=PORT, debug=False)
 
 if __name__ == "__main__":
-    # Запускаем асинхронную функцию
-    asyncio.run(setup_webhook())
+    # Настраиваем webhook в event loop
+    loop.run_until_complete(setup_webhook())
+    
+    # Запускаем Flask в отдельном потоке, чтобы не блокировать event loop
+    import threading
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+    
+    # Запускаем event loop
+    loop.run_forever()
